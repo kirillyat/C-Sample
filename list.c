@@ -1,6 +1,5 @@
 #include <stdio.h>
 
-
 struct item{
     int value;
     struct item *next;
