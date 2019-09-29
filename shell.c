@@ -1,12 +1,14 @@
 //
-// Created by Кирилл Яценко on 23/09/2019.
+//  shell.c
+//
+//  Created by kirillyat
 //
 
 #include <stdio.h>
 #include <stdlib.h>
 
 struct commandWord{
-    char value;
+    int value;
     struct commandWord *next;
 };
 
@@ -16,9 +18,10 @@ struct commandLine{
 };
 
 
+
 void freeTheWord(struct commandWord* W)
 {
-    struct commandLine* freeW;
+    struct commandWord* freeW;
     while(W != NULL){
         freeW = W;
         W = W->next;
@@ -37,55 +40,87 @@ void freeTheLine(struct commandLine* line)
     }
 }
 
+
 void printCommandWord(struct commandWord* W)
 {
     if (W != NULL){
-        printf("%c", W);
+        printf("%c", (char) W->value);
         printCommandWord(W->next);
     }
-    printf(" ");
 }
 
 void printCommandLine(struct commandLine* line)
 {
     if (line != NULL){
         printCommandWord(line->value);
+        printf(" ");
         printCommandLine(line->next);
     }
-    printf("/n");
 }
 
 
+
+struct commandWord* readInOneWord()
+{
+    struct commandWord *first = NULL, *last = NULL;
+    int c;
+    
+    while((c = getchar()) != '\n'){
+        if (first != NULL) {
+            last->next = malloc(sizeof(struct commandWord));
+            last = last->next;
+        } else {
+            last = malloc(sizeof(struct commandWord));
+            first = last;
+        }
+        
+        last->value = (char)c;
+        last->next = NULL;
+        
+        if(c == EOF){
+            freeTheWord(first->next);
+            first->value = EOF;
+            first->next = NULL;
+            break;
+        }
+    }
+    return first;
+}
+
+struct commandLine* splitCommand(struct commandWord * inputLine)
+{
+    struct commandLine *first = NULL, *last = NULL;
+    
+    if (inputLine == NULL){
+        return first;
+    } else {//if (inputLine->value == EOF){
+        first = malloc(sizeof(struct commandLine));
+        first->value = inputLine;
+        first->next = NULL;
+        return first;
+  //  } else {
+        
+    }
+    //return first;
+}
 
 void shell()
 {
-    int point = 0;
-    struct commandLine* line;
-    struct commandWord* wrd;
-    short flag = 0;              //флаг кавычек
-
-    while(point != EOF){
-        if(point == EOL){
-            printCommandLine(line);
-            freeTheLine(line);
-            point = 0;
+    struct commandLine *shellCommand= NULL;
+    while ((((shellCommand = splitCommand(readInOneWord()))->value)->value)!=EOF) {
+        if(shellCommand->value == NULL) {
+            freeTheLine(shellCommand);
+            printf("\n");
             continue;
         }
-        while(f and ((point = getchar())!=EOL)){
-
-        }
-
-
+        printCommandWord(shellCommand->value);
+        printf("\n");
+        freeTheLine(shellCommand);
     }
-
+    freeTheLine(shellCommand);
 }
 
-
-
-
-
-int main(int argc, char *argv[])
-{
+int main() {
     shell();
     return 0;
 }
