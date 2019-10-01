@@ -50,7 +50,7 @@ void printCommandLine(struct commandLine* line)
 {
     if (line != NULL) {
         printCommandWord(line->value);
-        printf(" ");
+       // printf(" ");
         printCommandLine(line->next);
     }
 }
@@ -67,7 +67,7 @@ struct commandWord* readInOneWord()
             last = malloc(sizeof(struct commandWord));
             first = last;
         }
-        last->value = (char)c;
+        last->value = c;
         last->next = NULL;
         
         if (c == EOF) {
@@ -83,7 +83,7 @@ struct commandWord* readInOneWord()
 
 struct commandWord* cleanFromSpaces(struct commandWord * inputLine)
 {
-    struct commandWord *last = NULL, *first = NULL, *freeW ;
+    struct commandWord *last = NULL, *first = NULL, *freeW;
     int commaFlag = 0, spaceFlag = 1;
     while (inputLine != NULL) {
         
@@ -93,9 +93,10 @@ struct commandWord* cleanFromSpaces(struct commandWord * inputLine)
             free(freeW);
             continue;
         }
+        if (inputLine->value == '\"') commaFlag = (commaFlag)?0:1;
         if (inputLine->value != ' ') spaceFlag = 0;
         if (inputLine->value == ' ') spaceFlag = (commaFlag)?0:1;
-        if (inputLine->value == '\"') commaFlag = (commaFlag)?0:1;
+       
         
         if (first == NULL){
             first = inputLine;
@@ -151,12 +152,13 @@ void shell()
 }
 
 int main() {
-   // struct commandWord* p = cleanFromSpaces(readInOneWord());
 
     struct commandLine* s = splitCommand(cleanFromSpaces(readInOneWord()));
+    printf("\n");
     printCommandLine(s);
     printf("\n");
     freeTheLine(s);
+
     
     
     return 0;
