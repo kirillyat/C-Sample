@@ -1,165 +1,158 @@
 //
-//  shell.c
-//
-//  Created by kirillyat
+//  shell
 //
 
 #include <stdio.h>
 #include <stdlib.h>
 
-struct commandWord{
+
+struct word{
     int value;
-    struct commandWord *next;
+    struct word *next;
+};
+struct line{
+    struct word *value;
+    struct line *next;
 };
 
-struct commandLine{
-    struct commandWord *value;
-    struct commandLine *next;
-};
-
-void freeTheWord(struct commandWord* W)
+void freeword(struct word *inputword)
 {
-    struct commandWord* freeW;
-    while (W != NULL) {
-        freeW = W;
-        W = W->next;
-        free(freeW);
+    struct word *fword;
+    while (inputword != NULL) {
+        fword = inputword;
+        inputword = inputword->next;
+        free(fword);
     }
 }
 
-void freeTheLine(struct commandLine* line)
+void freeline(struct line *inputline)
 {
-    struct commandLine* freeLine;
-    while (line != NULL) {
-        freeLine = line;
-        line = line->next;
-        freeTheWord(freeLine->value);
-        free(freeLine);
+    struct  line *fline;
+    while (inputline != NULL) {
+        fline = inputline;
+        inputline = inputline->next;
+        freeword(fline->value);
+        free(fline);
     }
 }
 
-void printCommandWord(struct commandWord* W)
+void printword(struct word* inputword)
 {
-    if (W != NULL) {
-        printf("%c", W->value);
-        printCommandWord(W->next);
+    if (inputword != NULL) {
+        if((char)inputword->value)
+            printf("%c", (char)inputword->value);
+        printword(inputword->next);
     }
 }
 
-void printCommandLine(struct commandLine* line)
+void printline(struct line* inputline)
 {
-    if (line != NULL) {
-        printCommandWord(line->value);
-       // printf(" ");
-        printCommandLine(line->next);
+    if (inputline != NULL) {
+        printword(inputline->value);
+        printf(" ");
+        printline(inputline->next);
     }
 }
 
-struct commandWord* readInOneWord()
-{
-    struct commandWord *first = NULL, *last = NULL;
-    int c;
-    while ((c = getchar()) != '\n') {
-        if (first != NULL) {
-            last->next = malloc(sizeof(struct commandWord));
-            last = last->next;
-        } else {
-            last = malloc(sizeof(struct commandWord));
-            first = last;
-        }
-        last->value = c;
-        last->next = NULL;
-        
-        if (c == EOF) {
-            freeTheWord(first->next);
+struct word* readWord(){
+    struct word *first = NULL, *last = NULL, *extra = NULL;
+    int symbol, commaFlag = 0;
+    for (;;) {
+        symbol = getchar();
+        if (((symbol == ' ') && (!commaFlag)) || (symbol == '\n')){
+            if ((symbol == '\n') && (commaFlag)){
+                freeword(first);
+                first = NULL;
+                printf("error : commas balanse");
+            }
+            extra = malloc(sizeof(struct word));
+            extra->value = symbol;
+            extra->next = first;
+            first = extra;
+            break;
+        } else if (symbol == EOF) {
+            if (!first)
+                printf("error: eof ");
+            freeword(first->next);
             first->value = EOF;
             first->next = NULL;
             break;
-        }
-    }
-    return first;
-}
-
-
-struct commandWord* cleanFromSpaces(struct commandWord * inputLine)
-{
-    struct commandWord *last = NULL, *first = NULL, *freeW;
-    int commaFlag = 0, spaceFlag = 1;
-    while (inputLine != NULL) {
-        
-        if ((inputLine->value == ' ') && !commaFlag && spaceFlag){
-            freeW = inputLine;
-            inputLine = inputLine->next;
-            free(freeW);
+        } else if (symbol == '\"') {
+            commaFlag = (commaFlag == 1)?0:1;
             continue;
-        }
-        if (inputLine->value == '\"') commaFlag = (commaFlag)?0:1;
-        if (inputLine->value != ' ') spaceFlag = 0;
-        if (inputLine->value == ' ') spaceFlag = (commaFlag)?0:1;
-       
-        
-        if (first == NULL){
-            first = inputLine;
-            last = first;
         } else {
-            last->next = inputLine;
-            last = last->next;
+            if (first == NULL) {
+                last = malloc(sizeof(struct word));
+                first = last;
+            } else {
+                last->next = malloc(sizeof(struct word));
+                last = last->next;
+            }
+            last->value = symbol;
+            last->next = NULL;
         }
-        
-        inputLine = inputLine->next;
-        last->next = NULL;
     }
-
     return first;
 }
 
-struct commandLine* splitCommand(struct commandWord * inputLine)
+struct line* readCommand()
 {
-    struct commandLine *first = NULL, *last = NULL;
-    struct commandWord *prev = inputLine, *freeW;
-    int commaFlag = 0;
-    
-    while (inputLine!=NULL) {
-        if (first == NULL){
-            first = malloc(sizeof(struct commandLine));
-            first->value = inputLine;
-            last = first;
-        } else {
-            last->next = malloc(sizeof(struct commandLine));
-            last = last->next;
-            last->value = inputLine;
+    struct line *first = NULL, *last = NULL;
+    struct word *buffer;
+    for (;;) {
+        buffer = readWord();
+        if (buffer == NULL) {
+            continue;
+        } else if (buffer->value == EOF) {
+            freeline(first);
+                                                                                        //todo eof
+            break;
+        } else if ((buffer->value == ' ') || (buffer->value == '\n')) {
+            if (buffer->next == NULL)
+                goto nextline;
+            if (first == NULL){
+                first = malloc(sizeof(struct line));
+                last = first;
+            } else {
+                last->next = malloc(sizeof(struct line));
+                last = last->next;
+            }
+            last->next = NULL;
+            last->value = buffer->next;
+        nextline:
+            if (buffer->value == ' '){
+                free(buffer);
+                continue;
+            } else {
+                free(buffer);
+                break;
+            }
         }
-        last->next = NULL;
-        
-        while((inputLine->value != ' ') && !commaFlag) {
-        
-            if (inputLine->value == '\"') commaFlag = (commaFlag)?0:1;
-            prev = inputLine;
-            inputLine = inputLine->next;
-            if (inputLine == NULL) break;
-        }
-        freeW = inputLine;
-        if (inputLine) inputLine = inputLine->next;
-        free(freeW);
-        prev->next = NULL;
     }
     return first;
 }
 
 void shell()
 {
-    
+    struct line * input = NULL;
+    for (;;) {
+        printf(">>>");
+        input = readCommand();
+        if (input == NULL)
+            continue;
+        else if (input->value->value == EOF){
+            freeline(input);
+            break;
+        } else {
+            printline(input);
+            printf("\n");
+            freeline(input);
+        }
+    }
 }
 
-int main() {
 
-    struct commandLine* s = splitCommand(cleanFromSpaces(readInOneWord()));
-    printf("\n");
-    printCommandLine(s);
-    printf("\n");
-    freeTheLine(s);
-
-    
-    
+int main(int argc, const char * argv[]) {
+    shell();
     return 0;
 }
