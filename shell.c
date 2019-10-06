@@ -1,10 +1,11 @@
 //
-//  shell
+//  shell.c
+//  kirillyat
+//  MSU CMC 2019
 //
 
 #include <stdio.h>
 #include <stdlib.h>
-
 
 struct word{
     int value;
@@ -54,7 +55,8 @@ void printline(struct line* inputline)
     }
 }
 
-struct word* readWord(){
+struct word* readWord()
+{
     struct word *first = NULL, *last = NULL, *extra = NULL;
     int symbol, commaFlag = 0;
     for (;;) {
@@ -115,7 +117,6 @@ struct line* readCommand()
                 last->next = malloc(sizeof(struct line));
                 last = last->next;
             }
-            
             last->value = buffer->next;
             last->next = NULL;
             nextline:
@@ -135,7 +136,7 @@ void shell()
 {
     struct line * input = NULL;
     for (;;) {
-        printf(">>>");
+        printf(">>> ");
         input = readCommand();
         if (input == NULL)
             continue;
@@ -150,8 +151,8 @@ void shell()
     }
 }
 
-
-int main(int argc, const char * argv[]) {
+int main(int argc, const char * argv[])
+{
     shell();
     return 0;
 }
