@@ -10,6 +10,7 @@ struct word{
     int value;
     struct word *next;
 };
+
 struct line{
     struct word *value;
     struct line *next;
@@ -25,7 +26,7 @@ void freeword(struct word *inputword)
     }
 }
 
-void freeline(struct line *inputline)
+void freeline(struct line* inputline)
 {
     struct  line *fline;
     while (inputline != NULL) {
@@ -39,8 +40,7 @@ void freeline(struct line *inputline)
 void printword(struct word* inputword)
 {
     if (inputword != NULL) {
-        if((char)inputword->value)
-            printf("%c", (char)inputword->value);
+        printf("%c", (char)inputword->value);
         printword(inputword->next);
     }
 }
@@ -59,31 +59,27 @@ struct word* readWord(){
     int symbol, commaFlag = 0;
     for (;;) {
         symbol = getchar();
-        if (((symbol == ' ') && (!commaFlag)) || (symbol == '\n')){
+        if (((symbol == ' ') && (!commaFlag)) || (symbol == '\n') || (symbol == EOF)){
             if ((symbol == '\n') && (commaFlag)){
                 freeword(first);
                 first = NULL;
-                printf("error : commas balanse");
+                printf("error : commas balanse\n");
+            } else if ((symbol == EOF) && (first != NULL)) {
+                printf("error: eof \n");
+                freeword(first);
             }
             extra = malloc(sizeof(struct word));
             extra->value = symbol;
             extra->next = first;
             first = extra;
             break;
-        } else if (symbol == EOF) {
-            if (!first)
-                printf("error: eof ");
-            freeword(first->next);
-            first->value = EOF;
-            first->next = NULL;
-            break;
         } else if (symbol == '\"') {
             commaFlag = (commaFlag == 1)?0:1;
             continue;
         } else {
             if (first == NULL) {
-                last = malloc(sizeof(struct word));
-                first = last;
+                first = malloc(sizeof(struct word));
+                last = first;
             } else {
                 last->next = malloc(sizeof(struct word));
                 last = last->next;
@@ -105,7 +101,9 @@ struct line* readCommand()
             continue;
         } else if (buffer->value == EOF) {
             freeline(first);
-                                                                                        //todo eof
+            first = malloc(sizeof(struct line));
+            first->value = buffer;
+            first->next = NULL;
             break;
         } else if ((buffer->value == ' ') || (buffer->value == '\n')) {
             if (buffer->next == NULL)
@@ -117,9 +115,10 @@ struct line* readCommand()
                 last->next = malloc(sizeof(struct line));
                 last = last->next;
             }
-            last->next = NULL;
+            
             last->value = buffer->next;
-        nextline:
+            last->next = NULL;
+            nextline:
             if (buffer->value == ' '){
                 free(buffer);
                 continue;
