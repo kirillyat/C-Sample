@@ -50,7 +50,8 @@ void printline(struct line* inputline)
 {
     if (inputline != NULL) {
         printword(inputline->value);
-        printf(" ");
+        if (inputline->next != NULL)
+            printf(" ");
         printline(inputline->next);
     }
 }
@@ -67,8 +68,9 @@ struct word* readWord()
                 first = NULL;
                 printf("error : commas balanse\n");
             } else if ((symbol == EOF) && (first != NULL)) {
-                printf("error: eof \n");
+                printf("\nerror: eof \n");
                 freeword(first);
+                first = NULL;
             }
             extra = malloc(sizeof(struct word));
             extra->value = symbol;
