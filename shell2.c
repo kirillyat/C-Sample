@@ -207,18 +207,20 @@ int ifChangeDir(char** command)
 
 void executeCommand(char** command)
 {
-    int rez, p = fork();
-    if (p == 0) { /* CHILD */
-        if (ifChangeDir(command)) {
+    int rez, p;
+    if (ifChangeDir(command)) {
             rez = chdir(command[1]);
             if (rez == -1)
                 perror(command[1]);
-        } else {
+    } else {
+        p = fork();
+        if (p == 0) {  /* CHILD */
             execvp(command[0], command);
             perror(command[0]);
-            exit(1); }
+            exit(1);
+        }
+        wait(NULL);
     }
-    wait(NULL);
 }
 
 
