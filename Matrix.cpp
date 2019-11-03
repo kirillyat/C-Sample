@@ -1,5 +1,5 @@
 //
-//  main.c
+//  main.cpp
 //
 //  Created by Кирилл Яценко on 02.11.2019.
 //  Copyright © 2019 Кирилл Яценко. All rights reserved.
