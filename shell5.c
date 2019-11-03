@@ -9,7 +9,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-
+#include <fcntl.h>
 
 struct word {
     int value;
@@ -126,24 +126,26 @@ int linelen(struct line *inputline)
 
 int ifWordIsReady(int symbol, int commaFlag)
 {
-    return ( ((symbol == ' ') && (!commaFlag)) ||
-             (symbol == '\n') ||
+    return ( (symbol == '\n') ||
              (symbol == EOF ) ||
+             ((symbol == ' ') && (!commaFlag)) ||
              ((symbol == '&') && (!commaFlag)) ||
              ((symbol == '>') && (!commaFlag)) ||
-             ((symbol == '<') && (!commaFlag))   );
+             ((symbol == '<') && (!commaFlag)) ||
+             ((symbol == '|') && (!commaFlag)) );
 }
 
 int readWord(struct word** first)
 {
+    freeword(*first);
+    (*first) = NULL;
     struct word *last = NULL;
-    int symbol = 0, commaFlag = 0;
+    int symbol, commaFlag = 0;
     for (;;) {
         symbol = getchar();
         if (ifWordIsReady(symbol, commaFlag)) {
-            if ((symbol == '\n') && (commaFlag)){
+            if ((symbol == '\n') && (commaFlag))
                 symbol = '\"';
-            }
             return symbol;
         } else if (symbol == '\"') {
             commaFlag = (commaFlag == 1)?0:1;
@@ -175,10 +177,9 @@ void addWord(struct line **first, struct line **last, struct word* element)
     (*last)->next = NULL;
 }
 
-int statusAnalysis(struct command **input, int status)
+void initCommand(struct command **input)
 {
-    int analysis = 1;
-    if (*input == NULL) {
+    if (*input == NULL){
         (*input) = malloc(sizeof(struct command));
         (*input)->first = NULL;
         (*input)->backgroundflag = 0;
@@ -189,61 +190,130 @@ int statusAnalysis(struct command **input, int status)
         (*input)->outfd = NULL;
         (*input)->infd = NULL;
     }
+}
+
+int lexicalAnalysis(struct command **input, int status)
+{
+    int analysis = 0;
+    
+    if ((*input)->backgroundflag == 1)
+        analysis = -1;
     
     if (status == '&') {
         (*input)->backgroundflag = 1;
     } else if (status == '<') {
-        (*input)->inflag = 1;
+        
+        if ((*input)->inflag) {
+            analysis = -1;
+            printf("\nError: incorrect input {<}\n");
+        }
+        else
+            (*input)->inflag = 1;
+        
     } else if (status == '>') {
-        (*input)->outflag = 1;
+        if ((*input)->outflag) {
+            analysis = -1;
+            printf("\nError: incorrect input {> or >>}\n");
+        }
+        else
+            (*input)->outflag = 1;
+        
     } else if (status == '\"') {
-        analysis = 0;
+        analysis = -1;
         printf("\nError: incorrect input {commas}\n");
     } else if (status == '\n') {
-         analysis = 0;
+         analysis = 1;
     } else if (status == EOF) {
         (*input)->eofflag = 1;
-        analysis = 0;
+        analysis = 1;
         if ((*input)->first != NULL) {
             printf("\nError: incorrect input {EOF}\n");
             analysis = 0;
         }
     }
-    
-    
     return analysis;
 }
 
+int readLocation(struct command* result, int streem)
+{
+    int sucsess = 1, status;
+    struct word *buffer = NULL;
+    status = readWord(&buffer);
+    if (status != ' ') {
+        if ((buffer == NULL) && (status == streem) && (status == '>'))
+            result->appendflag = 1;
+        else
+            return !sucsess;
+    }
+    
+    
+    while (buffer == NULL) {
+        status = readWord(&buffer);
+        if ((status != ' ') && (buffer == NULL)){
+            if (status == EOF)
+                result->eofflag = 1;
+            return !sucsess;
+        }
+        
+    }
+       
+
+    if (streem == '>')
+        result->outfd = buffer;
+    else if (streem == '<') {
+        result->infd = buffer;
+    }
+    lexicalAnalysis(&result, status);
+    return sucsess;
+}
 
 struct command* readCommand()
 {
-    struct command *result;
-    struct line *first = NULL;
-    struct line *last = NULL;
+    struct command *result = NULL;
+    initCommand(&result);
+    struct line *first = NULL, *last = NULL;
     struct word *buffer = NULL;
-    int status, prev = -2, alalysis;
+    int status, analysis;
     
     for (;;) {
-        
         status = readWord(&buffer);
+        
         if (buffer != NULL) {
             addWord(&first, &last, buffer);
+            if (result->first == NULL)
+                result->first = first;
+            buffer = NULL;
         }
-        alalysis = statusAnalysis(&result, status);
         
-        if (status == '\"') {
-            freeword(buffer);
-            freeline(first);         // TODO: freeeeee
-            first = NULL;
-            break;
+        analysis = lexicalAnalysis(&result, status);
+        
+        if (analysis == 0){
+            if ((status == '>') || (status == '<'))
+                analysis = readLocation(result, status);
         }
+        
+        if (analysis == -1) {
+            freecommand(result);
+            result = NULL;
+            break;
+        } else if (analysis == 1)
+            break;
+        
+        
     }
     return result;
 }
 
-//char* word2string (struct word* list){
-    
-//}
+char* word2string (struct word* list){
+    int wordsize = wordlen(list), i;
+    char *str = malloc(sizeof(char) * (1 + wordsize));
+    for (i = 0; i < wordsize; i++) {
+        str[i] = (char)list->value;
+        list = list->next;
+    }
+    str[wordsize] = 0;
+    return str;
+}
 
 char** list2string (struct line* list)
 {
@@ -269,11 +339,48 @@ char** list2string (struct line* list)
 
 int ifChangeDir(char** command)
 {
-    return ((command[0][0] == 'c') &&
+    return ((command != NULL) &&
+            (command[0] != NULL) &&
+            (command[0][0] == 'c') &&
             (command[0][1] == 'd') &&
             (command[0][2] == 0) );
 }
 
+int openIOfd(struct command* input)
+{
+    int fd;
+    char* location = NULL;
+    
+    if (input->inflag) {
+        location = word2string(input->infd);
+        fd = open(location, O_RDONLY, 0666);
+        
+        if (fd == -1)
+            perror(location);
+        else {
+            dup2(fd, 0);
+            close(fd);
+        }
+        free(location);
+    }
+    
+    if (input->outflag) {
+        location = word2string(input->outfd);
+        if (input->appendflag)
+            fd = open(location, O_WRONLY|O_CREAT|O_APPEND, 0666);
+        else
+            fd = open(location, O_WRONLY|O_CREAT|O_TRUNC, 0666);
+        if (fd == -1)
+            perror(location);
+        else {
+            dup2(fd, 1);
+            close(fd);
+        }
+        free(location);
+    }
+    
+    return 0;
+}
 
 void сleaningZombieProcesses()
 {
@@ -281,8 +388,7 @@ void сleaningZombieProcesses()
     }
 }
 
-
-void executeCommand(char **executeString,int bgmode)
+void executeCommand(char **executeString, struct command *input)
 {
     int rez, p, status, zombiePid;
     сleaningZombieProcesses();
@@ -293,21 +399,19 @@ void executeCommand(char **executeString,int bgmode)
     } else {
         p = fork();
         if (p == 0) {  /* CHILD */
+            openIOfd(input);
             execvp(executeString[0], executeString);
             perror(executeString[0]);
             exit(1);
         }
-        if (!bgmode)
+        if (!input->backgroundflag)
             do { /* clean while (pid != p) */
                 zombiePid = wait(&status);
-            }while (zombiePid != p);
+            } while (zombiePid != p);
     }
 }
 
-int openIOfd(struct command* input)
-{
-    return 0;
-}
+
 
 
 void shell()
@@ -324,11 +428,13 @@ void shell()
             break;
         } else {
             printline(input->first);
+            printf("\n");
             executeString = list2string(input->first);
-            executeCommand(executeString, input->backgroundflag);
+            executeCommand(executeString, input);
+            
             freestring(executeString);
-            freecommand(input);
             executeString = NULL;
+            freecommand(input);
             input = NULL;
         }
     }
@@ -340,3 +446,4 @@ int main(int argc, const char * argv[])
     shell();
     return 0;
 }
+
