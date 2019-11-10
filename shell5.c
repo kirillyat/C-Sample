@@ -311,12 +311,16 @@ struct command* readCommand()
             if (result->first == NULL)
                 result->first = first;
             buffer = NULL;
-            if (status == '|') {
-                buffer = malloc(sizeof(struct word));
-                buffer->value = status;
-                addWord(&first, &last, buffer);
-                buffer = NULL;
-            }
+            
+        }
+        if (status == '|') {
+            buffer = malloc(sizeof(struct word));
+            buffer->value = status;
+            buffer->next = NULL;
+            addWord(&first, &last, buffer);
+            if (result->first == NULL)
+            result->first = first;
+            buffer = NULL;
         }
         afterlocation:;
         analysis = lexicalAnalysis(&result, status);
@@ -515,12 +519,12 @@ void waitpidlist(struct pidlist* pids)
     }
 }
 
-struct pidlist* addPid(struct pidlist* pids, int new)
+void addPid(struct pidlist** pids, int new)
 {
     struct pidlist* tmp = malloc(sizeof(struct pidlist));
     tmp->pid = new;
-    tmp->next = pids;
-    return(tmp);
+    tmp->next = *pids;
+    *pids = tmp;
 }
 
 int ifpipe(struct line* input)
@@ -550,11 +554,9 @@ char** readConveyerCommand(struct command *conveyerProgs)
     return result;
 }
 
-struct pidlist* conveyer(struct command **conveyerProgs, int fdin)
+void conveyer(struct command **conveyerProgs, int fdin, struct pidlist** pids)
 {
-    int p, fdout = 1;
-    int fd[2];
-    struct pidlist* pids = NULL;
+    int p, fdout = 1, fd[2];
     char** executeString = readConveyerCommand(*conveyerProgs);
     
     if ((*conveyerProgs)->first == NULL) {
@@ -562,23 +564,22 @@ struct pidlist* conveyer(struct command **conveyerProgs, int fdin)
             openOfd(*conveyerProgs, &fdout);
         } else
             fdout = 1;
-        fd[0] = fdin;
-        fd[1] = fdout;
     } else {
         pipe(fd);
+        fdout = fd[1];
     }
     
     p = fork();
     if (p != 0) {
-        addPid(pids, p);
+       addPid(pids, p);
     } else {
         if (fdin != 0) {
             dup2(fdin, 0);
             close(fdin);
         }
-        if (fd[1] != 1) {
-            dup2(fd[1], 1);
-            close(fd[1]);
+        if (fdout != 1) {
+            dup2(fdout, 1);
+            close(fdout);
         }
         execvp(executeString[0], executeString);
         perror(executeString[0]);
@@ -586,10 +587,16 @@ struct pidlist* conveyer(struct command **conveyerProgs, int fdin)
         
     }
     freestring(executeString);
-    conveyer(conveyerProgs, fd[0]);//TODO: ????
-    close(fd[1]);
-    close(fd[0]);
-    return pids;
+    executeString = NULL;
+    if((*conveyerProgs)->first != NULL){
+        conveyer(conveyerProgs, fd[0], pids);//TODO: ????
+        if(fd[0] != 0)
+            close(fd[0]);
+    }
+    if(fdin != 0)
+        close(fdin);
+    if(fdout != 0)
+        close(fdout);
 }
 
 void shell()
@@ -609,7 +616,10 @@ void shell()
             continue;
         } else {
             if (input->conveyerflag){
-                struct pidlist* pids = conveyer(&input, 0);
+                printline(input->first);
+                
+                struct pidlist* pids = NULL;
+                conveyer(&input, 0, &pids);
                 if (input->backgroundflag == 0)
                     waitpidlist(pids);
                 freepids(pids);
@@ -634,3 +644,4 @@ int main(int argc, const char * argv[])
     shell();
     return 0;
 }
+
