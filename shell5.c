@@ -28,8 +28,15 @@ struct command {
     int outflag;
     int appendflag;
     int eofflag;
+    int errflag;
+    int conveyerflag;
     struct word* outfd;
     struct word* infd;
+};
+
+struct pidlist {
+    int pid;
+    struct pidlist* next;
 };
 
 void freeword(struct word *inputword)
@@ -44,7 +51,7 @@ void freeword(struct word *inputword)
 
 void freeline(struct line* inputline)
 {
-    struct  line *fline;
+    struct line *fline;
     while (inputline != NULL) {
         fline = inputline;
         inputline = inputline->next;
@@ -75,6 +82,17 @@ void freecommand(struct command* command)
         free(command);
     }
 }
+
+void freepids(struct pidlist* pids)
+{
+    struct pidlist *fpid = NULL;
+    while (pids != NULL) {
+        fpid = pids;
+        pids = pids->next;
+        free(fpid);
+    }
+}
+
 
 void printword(struct word* inputword)
 {
@@ -123,6 +141,8 @@ int linelen(struct line *inputline)
     }
     return count;
 }
+
+/*---------------------READING COMMASND PART---------------------*/
 
 int ifWordIsReady(int symbol, int commaFlag)
 {
@@ -187,6 +207,8 @@ void initCommand(struct command **input)
         (*input)->outflag = 0;
         (*input)->appendflag = 0;
         (*input)->eofflag = 0;
+        (*input)->errflag = 0;
+        (*input)->conveyerflag = 0;
         (*input)->outfd = NULL;
         (*input)->infd = NULL;
     }
@@ -195,76 +217,82 @@ void initCommand(struct command **input)
 int lexicalAnalysis(struct command **input, int status)
 {
     int analysis = 0;
+    if (((*input)->backgroundflag == 1)&&(status!=' ')&&(status != '\n')){
+        (*input)->errflag = 1;
     
-    if ((*input)->backgroundflag == 1)
-        analysis = -1;
-    
+        write(2,"Bad input{&}\n", 13);
+    }
     if (status == '&') {
         (*input)->backgroundflag = 1;
     } else if (status == '<') {
-        
         if ((*input)->inflag) {
-            analysis = -1;
-            printf("\nError: incorrect input {<}\n");
+            (*input)->errflag = 1;
+            write(2, "Incorrect input {<}\n", 20);
         }
         else
             (*input)->inflag = 1;
-        
     } else if (status == '>') {
         if ((*input)->outflag) {
-            analysis = -1;
-            printf("\nError: incorrect input {> or >>}\n");
+            (*input)->errflag = 1;
+           
+            if ((*input)->errflag == 0)
+                write(2, "Incorrect input {> or >>}\n", 26);
         }
         else
             (*input)->outflag = 1;
-        
     } else if (status == '\"') {
-        analysis = -1;
-        printf("\nError: incorrect input {commas}\n");
+        analysis = 1;
+        (*input)->errflag = 1;
+        write(2, "Incorrect input {commas}\n", 25);
     } else if (status == '\n') {
          analysis = 1;
+    } else if (status == '|') {
+        (*input)->conveyerflag = 1;
+        analysis = 0;
     } else if (status == EOF) {
-        (*input)->eofflag = 1;
         analysis = 1;
-        if ((*input)->first != NULL) {
-            printf("\nError: incorrect input {EOF}\n");
-            analysis = 0;
-        }
+        if ((*input)->errflag == 0)
+            write(2, "\nIncorrect input {EOF}\n", 23);
+        (*input)->eofflag = 1;
+        
     }
     return analysis;
 }
 
 int readLocation(struct command* result, int streem)
 {
-    int sucsess = 1, status;
+    int status;
     struct word *buffer = NULL;
     status = readWord(&buffer);
     if (status != ' ') {
         if ((buffer == NULL) && (status == streem) && (status == '>'))
             result->appendflag = 1;
-        else
-            return !sucsess;
+        else if (buffer == NULL) {
+            
+            if (result->errflag == 0)
+                write(2, "Incorrect input {incorrect location}\n", 37);
+            result->errflag = 1;
+            return status;
+        }
     }
-    
-    
     while (buffer == NULL) {
         status = readWord(&buffer);
         if ((status != ' ') && (buffer == NULL)){
             if (status == EOF)
                 result->eofflag = 1;
-            return !sucsess;
-        }
+            if (result->errflag == 0)
+                write(2, "Incorrect input {more ten one >}\n", 33);
         
+            result->errflag = 1;
+            return status;
+        }
     }
-       
-
     if (streem == '>')
         result->outfd = buffer;
     else if (streem == '<') {
         result->infd = buffer;
     }
-    lexicalAnalysis(&result, status);
-    return sucsess;
+    return status;
 }
 
 struct command* readCommand()
@@ -283,23 +311,24 @@ struct command* readCommand()
             if (result->first == NULL)
                 result->first = first;
             buffer = NULL;
+            if (status == '|') {
+                buffer = malloc(sizeof(struct word));
+                buffer->value = status;
+                addWord(&first, &last, buffer);
+                buffer = NULL;
+            }
         }
-        
+        afterlocation:;
         analysis = lexicalAnalysis(&result, status);
         
         if (analysis == 0){
-            if ((status == '>') || (status == '<'))
-                analysis = readLocation(result, status);
+            if ((status == '>') || (status == '<')){
+                status = readLocation(result, status);
+                goto afterlocation;
+             }
         }
-        
-        if (analysis == -1) {
-            freecommand(result);
-            result = NULL;
+        if (analysis == 1)
             break;
-        } else if (analysis == 1)
-            break;
-        
-        
     }
     return result;
 }
@@ -337,6 +366,8 @@ char** list2string (struct line* list)
     return str;
 }
 
+/*---------------------NOT CONVEYER PART (EXEC)---------------------*/
+
 int ifChangeDir(char** command)
 {
     return ((command != NULL) &&
@@ -346,20 +377,17 @@ int ifChangeDir(char** command)
             (command[0][2] == 0) );
 }
 
-int openIOfd(struct command* input)
+int openIOfd(struct command* input, int* fd)
 {
-    int fd;
     char* location = NULL;
     
     if (input->inflag) {
         location = word2string(input->infd);
-        fd = open(location, O_RDONLY, 0666);
-        
-        if (fd == -1)
+        fd[0] = open(location, O_RDONLY, 0666);
+        if (fd[0] == -1){
+            input->errflag = 1;
             perror(location);
-        else {
-            dup2(fd, 0);
-            close(fd);
+            return -1;
         }
         free(location);
     }
@@ -367,20 +395,56 @@ int openIOfd(struct command* input)
     if (input->outflag) {
         location = word2string(input->outfd);
         if (input->appendflag)
-            fd = open(location, O_WRONLY|O_CREAT|O_APPEND, 0666);
+            fd[1] = open(location, O_WRONLY|O_CREAT|O_APPEND, 0666);
         else
-            fd = open(location, O_WRONLY|O_CREAT|O_TRUNC, 0666);
-        if (fd == -1)
+            fd[1] = open(location, O_WRONLY|O_CREAT|O_TRUNC, 0666);
+        if (fd[1] == -1){
+            input->errflag = 1;
             perror(location);
-        else {
-            dup2(fd, 1);
-            close(fd);
+            return -1;
         }
         free(location);
     }
-    
-    return 0;
+    return 1;
 }
+
+
+int openIfd(struct command* input, int* fd)
+{
+    char* location = NULL;
+    
+    if (input->inflag) {
+        location = word2string(input->infd);
+        fd[0] = open(location, O_RDONLY, 0666);
+        if (fd[0] == -1){
+            input->errflag = 1;
+            perror(location);
+            return -1;
+        }
+        free(location);
+    }
+    return 1;
+}
+
+int openOfd(struct command* input, int* fd)
+{
+    char* location = NULL;
+    if (input->outflag) {
+        location = word2string(input->outfd);
+        if (input->appendflag)
+            fd[0] = open(location, O_WRONLY|O_CREAT|O_APPEND, 0666);
+        else
+            fd[0] = open(location, O_WRONLY|O_CREAT|O_TRUNC, 0666);
+        if (fd[0] == -1){
+            input->errflag = 1;
+            perror(location);
+            return -1;
+        }
+        free(location);
+    }
+    return 1;
+}
+
 
 void сleaningZombieProcesses()
 {
@@ -388,10 +452,10 @@ void сleaningZombieProcesses()
     }
 }
 
-void executeCommand(char **executeString, struct command *input)
+void executeCommand(struct command *input, int fdin, int fdout)
 {
     int rez, p, status, zombiePid;
-    сleaningZombieProcesses();
+    char** executeString = list2string(input->first);
     if (ifChangeDir(executeString)) {
             rez = chdir(executeString[1]);
             if (rez == -1)
@@ -399,43 +463,167 @@ void executeCommand(char **executeString, struct command *input)
     } else {
         p = fork();
         if (p == 0) {  /* CHILD */
-            openIOfd(input);
+            if (fdin != 0) {
+                dup2(fdin, 0);
+                close(fdin);
+            }
+            if (fdout != 1) {
+                dup2(fdout, 1);
+                close(fdout);
+            }
             execvp(executeString[0], executeString);
             perror(executeString[0]);
             exit(1);
         }
-        if (!input->backgroundflag)
+        freestring(executeString);
+        if (input->backgroundflag != 1)
             do { /* clean while (pid != p) */
                 zombiePid = wait(&status);
             } while (zombiePid != p);
     }
 }
 
+/*---------------------CONVEYER PART---------------------*/
+
+int pidsum(struct pidlist* pids)
+{
+    int sum = 0;
+    struct pidlist* tmp = pids;
+    while (tmp != NULL) {
+        sum += tmp->pid;
+        tmp = tmp->next;
+    }
+    return sum;
+}
 
 
+void zeropid(struct pidlist* pids, int pid)
+{
+    struct pidlist* tmp = pids;
+    while (tmp != NULL) {
+        if (tmp->pid == pid)
+            tmp->pid = 0;
+    }
+}
+
+void waitpidlist(struct pidlist* pids)
+{
+    int status, zombie;
+    while (pidsum(pids) != 0) {
+        zombie = wait(&status);
+        zeropid(pids, zombie);
+    }
+}
+
+struct pidlist* addPid(struct pidlist* pids, int new)
+{
+    struct pidlist* tmp = malloc(sizeof(struct pidlist));
+    tmp->pid = new;
+    tmp->next = pids;
+    return(tmp);
+}
+
+int ifpipe(struct line* input)
+{
+    return ((input != NULL) &&
+            (input->value->value == '|') &&
+            (input->value->next == NULL));
+}
+
+char** readConveyerCommand(struct command *conveyerProgs)
+{
+    struct line* rezcmd = conveyerProgs->first;
+    struct line* prev = NULL;
+    char** result = NULL;
+    
+    while ((conveyerProgs->first != NULL) && (ifpipe(conveyerProgs->first) != 1)) {
+        prev = conveyerProgs->first;
+        conveyerProgs->first = conveyerProgs->first->next;
+    }
+    
+    if (conveyerProgs->first != NULL) {
+        conveyerProgs->first = conveyerProgs->first->next;
+        prev->next = NULL;
+        result = list2string(rezcmd);
+        freeline(rezcmd);
+    }
+    return result;
+}
+
+struct pidlist* conveyer(struct command **conveyerProgs, int fdin)
+{
+    int p, fdout = 1;
+    int fd[2];
+    struct pidlist* pids = NULL;
+    char** executeString = readConveyerCommand(*conveyerProgs);
+    
+    if ((*conveyerProgs)->first == NULL) {
+        if ((*conveyerProgs)->outflag == 1){
+            openOfd(*conveyerProgs, &fdout);
+        } else
+            fdout = 1;
+        fd[0] = fdin;
+        fd[1] = fdout;
+    } else {
+        pipe(fd);
+    }
+    
+    p = fork();
+    if (p != 0) {
+        addPid(pids, p);
+    } else {
+        if (fdin != 0) {
+            dup2(fdin, 0);
+            close(fdin);
+        }
+        if (fd[1] != 1) {
+            dup2(fd[1], 1);
+            close(fd[1]);
+        }
+        execvp(executeString[0], executeString);
+        perror(executeString[0]);
+        exit(1);
+        
+    }
+    freestring(executeString);
+    conveyer(conveyerProgs, fd[0]);//TODO: ????
+    close(fd[1]);
+    close(fd[0]);
+    return pids;
+}
 
 void shell()
 {
     struct command *input = NULL;
-    char** executeString = NULL;
     for (;;) {
         printf(">>> ");
         input = readCommand();
-        if (input == NULL)
+        сleaningZombieProcesses();
+        if (input == NULL){
             continue;
-        else if (input->eofflag) {
+        } else if (input->eofflag) {
             freecommand(input);
             break;
-        } else {
-            printline(input->first);
-            printf("\n");
-            executeString = list2string(input->first);
-            executeCommand(executeString, input);
-            
-            freestring(executeString);
-            executeString = NULL;
+        } else if (input->errflag) {
             freecommand(input);
-            input = NULL;
+            continue;
+        } else {
+            if (input->conveyerflag){
+                struct pidlist* pids = conveyer(&input, 0);
+                if (input->backgroundflag == 0)
+                    waitpidlist(pids);
+                freepids(pids);
+            } else {
+                int fd[] = {0, 1};
+                openIOfd(input, fd);
+                executeCommand(input, fd[0], fd[1]);
+                if (fd[0] != 0)
+                    close(fd[0]);
+                if (fd[1] != 1)
+                    close(fd[1]);
+                freecommand(input);
+                input = NULL;
+            }
         }
     }
 }
@@ -446,4 +634,3 @@ int main(int argc, const char * argv[])
     shell();
     return 0;
 }
-
