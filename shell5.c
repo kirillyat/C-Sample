@@ -142,7 +142,7 @@ int linelen(struct line *inputline)
     return count;
 }
 
-/*---------------------READING COMMASND PART---------------------*/
+/*---------------------READING COMMAND PART---------------------*/
 
 int ifWordIsReady(int symbol, int commaFlag)
 {
@@ -313,16 +313,18 @@ struct command* readCommand()
             buffer = NULL;
             
         }
+        afterlocation:;
+        
         if (status == '|') {
             buffer = malloc(sizeof(struct word));
             buffer->value = status;
             buffer->next = NULL;
             addWord(&first, &last, buffer);
             if (result->first == NULL)
-            result->first = first;
+                result->first = first;
             buffer = NULL;
         }
-        afterlocation:;
+        
         analysis = lexicalAnalysis(&result, status);
         
         if (analysis == 0){
@@ -507,6 +509,7 @@ void zeropid(struct pidlist* pids, int pid)
     while (tmp != NULL) {
         if (tmp->pid == pid)
             tmp->pid = 0;
+        tmp = tmp->next;
     }
 }
 
@@ -536,18 +539,25 @@ int ifpipe(struct line* input)
 
 char** readConveyerCommand(struct command *conveyerProgs)
 {
-    struct line* rezcmd = conveyerProgs->first;
+    struct line *rezcmd = conveyerProgs->first, *tmp = NULL;
     struct line* prev = NULL;
     char** result = NULL;
     
     while ((conveyerProgs->first != NULL) && (ifpipe(conveyerProgs->first) != 1)) {
         prev = conveyerProgs->first;
-        conveyerProgs->first = conveyerProgs->first->next;
+        conveyerProgs->first = (conveyerProgs->first)->next;
     }
     
     if (conveyerProgs->first != NULL) {
-        conveyerProgs->first = conveyerProgs->first->next;
         prev->next = NULL;
+        tmp = conveyerProgs->first;
+        conveyerProgs->first = (conveyerProgs->first)->next;
+        result = list2string(rezcmd);
+        
+       
+        freeline(rezcmd);
+        free(tmp);
+    } else {
         result = list2string(rezcmd);
         freeline(rezcmd);
     }
@@ -592,12 +602,65 @@ void conveyer(struct command **conveyerProgs, int fdin, struct pidlist** pids)
         conveyer(conveyerProgs, fd[0], pids);//TODO: ????
         if(fd[0] != 0)
             close(fd[0]);
+        if(fd[1] != 1)
+            close(fd[1]);
+    } else {
+        if(fdin != 0)
+            close(fdin);
+        if(fdout != 0)
+            close(fdout);
     }
-    if(fdin != 0)
-        close(fdin);
-    if(fdout != 0)
-        close(fdout);
 }
+
+void easy_conveyer(struct command **conveyerProgs, struct pidlist** pids)
+{
+    
+    int p, fd[2], fdout = -1, fdin = -1;
+    if (openOfd(*conveyerProgs, &fdout) == -1)
+        fdout = 1;
+    if (openIfd(*conveyerProgs, &fdin) == -1)
+        fdin = 0;
+    char** executeString = readConveyerCommand(*conveyerProgs);
+    pipe(fd);
+    p = fork();
+    if (p == 0) {
+        dup2(fdin,0);
+        close(fdin);
+        close(fd[0]);
+        dup2(fd[1], 1);
+        close(fd[1]);
+        
+        execvp(executeString[0], executeString);
+        perror(executeString[0]);
+        exit(1);
+        
+    }
+    freestring(executeString);
+    executeString = NULL;
+    
+    addPid(pids, p);
+    executeString = readConveyerCommand(*conveyerProgs);
+    p = fork();
+    if (p == 0) {
+        dup2(fdout, 1);
+        close(fdout);
+        close(fd[1]);
+        dup2(fd[0], 0);
+        close(fd[1]);
+        
+        execvp(executeString[0], executeString);
+        perror(executeString[0]);
+        exit(1);
+    }
+   
+    addPid(pids, p);
+    close(fd[0]);
+    close(fd[1]);
+    freestring(executeString);
+    executeString = NULL;
+}
+
+
 
 void shell()
 {
@@ -616,10 +679,10 @@ void shell()
             continue;
         } else {
             if (input->conveyerflag){
-                printline(input->first);
                 
                 struct pidlist* pids = NULL;
-                conveyer(&input, 0, &pids);
+                easy_conveyer(&input, &pids);
+                
                 if (input->backgroundflag == 0)
                     waitpidlist(pids);
                 freepids(pids);
@@ -644,4 +707,3 @@ int main(int argc, const char * argv[])
     shell();
     return 0;
 }
-
