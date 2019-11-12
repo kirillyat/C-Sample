@@ -566,8 +566,9 @@ char** readConveyerCommand(struct command *conveyerProgs)
 
 void conveyer(struct command **conveyerProgs, int fdin, struct pidlist** pids)
 {
-    int p, fdout = 1, fd[2];
-    char** executeString = readConveyerCommand(*conveyerProgs);
+    int p, fdout = 1, fd[] = {0,1};
+    char** executeString = NULL;
+    executeString = readConveyerCommand(*conveyerProgs);
     
     if ((*conveyerProgs)->first == NULL) {
         if ((*conveyerProgs)->outflag == 1){
@@ -578,11 +579,14 @@ void conveyer(struct command **conveyerProgs, int fdin, struct pidlist** pids)
         pipe(fd);
         fdout = fd[1];
     }
-    
+     
     p = fork();
     if (p != 0) {
-       addPid(pids, p);
+        addPid(pids, p);
     } else {
+        if (fd[0] != 0) {
+            close(fd[0]);
+        }
         if (fdin != 0) {
             dup2(fdin, 0);
             close(fdin);
@@ -591,6 +595,7 @@ void conveyer(struct command **conveyerProgs, int fdin, struct pidlist** pids)
             dup2(fdout, 1);
             close(fdout);
         }
+       
         execvp(executeString[0], executeString);
         perror(executeString[0]);
         exit(1);
@@ -598,16 +603,25 @@ void conveyer(struct command **conveyerProgs, int fdin, struct pidlist** pids)
     }
     freestring(executeString);
     executeString = NULL;
+    
     if((*conveyerProgs)->first != NULL){
-        conveyer(conveyerProgs, fd[0], pids);//TODO: ????
+        if (fdin != 0)
+            close(fdin);
+        if(fd[1] != 1)
+            close(fd[1]);
+        conveyer(conveyerProgs, fd[0], pids);
+       
+        if(fd[0] != 0)
+            close(fd[0]);
+       
+    } else {
         if(fd[0] != 0)
             close(fd[0]);
         if(fd[1] != 1)
             close(fd[1]);
-    } else {
         if(fdin != 0)
             close(fdin);
-        if(fdout != 0)
+        if(fdout != 1)
             close(fdout);
     }
 }
@@ -661,12 +675,26 @@ void easy_conveyer(struct command **conveyerProgs, struct pidlist** pids)
 }
 
 
+void printpwd(){
+    int p = fork();
+    if (p == 0) {
+        execlp("pwd", "pwd", NULL);
+        
+        perror("pwd");
+        exit(1);
+    }
+    
+    wait(NULL);
+   
+}
 
 void shell()
 {
     struct command *input = NULL;
     for (;;) {
-        printf(">>> ");
+       
+        //printpwd();
+        printf(">>>");
         input = readCommand();
         сleaningZombieProcesses();
         if (input == NULL){
@@ -681,11 +709,20 @@ void shell()
             if (input->conveyerflag){
                 
                 struct pidlist* pids = NULL;
-                easy_conveyer(&input, &pids);
+                //easy_conveyer(&input, &pids);
                 
+                int fdin = 0;
+                if ((openIfd(input, &fdin) == -1) || (fdin == -1))
+                    fdin = 0;
+                conveyer(&input, fdin, &pids);
+                
+              
                 if (input->backgroundflag == 0)
                     waitpidlist(pids);
                 freepids(pids);
+                freecommand(input);
+                
+                input = NULL;
             } else {
                 int fd[] = {0, 1};
                 openIOfd(input, fd);
