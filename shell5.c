@@ -10,6 +10,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <limits.h>
 
 struct word {
     int value;
@@ -675,17 +676,16 @@ void easy_conveyer(struct command **conveyerProgs, struct pidlist** pids)
 }
 
 
-void printpwd(){
-    int p = fork();
-    if (p == 0) {
-        execlp("pwd", "pwd", NULL);
-        
-        perror("pwd");
-        exit(1);
-    }
-    
-    wait(NULL);
-   
+void printwelcome()
+{
+   char PathName[PATH_MAX];
+   char PN;
+   PN = (char)getwd(PathName);
+   if (PN == (char)NULL)
+       printf ("error");
+   else
+       printf ("[%s] > ",PathName);
+
 }
 
 void shell()
@@ -693,8 +693,7 @@ void shell()
     struct command *input = NULL;
     for (;;) {
        
-        //printpwd();
-        printf(">>>");
+        printwelcome();
         input = readCommand();
         сleaningZombieProcesses();
         if (input == NULL){
