@@ -1,7 +1,7 @@
 //
 //  server.c
 //  CMC MSU
-//  Created by kirillyat on 14.11.2019.
+//  Created by kirillyat
 //
 
 #include <stdio.h>
@@ -13,7 +13,7 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <netinet/in.h>
-#include "myString.h"
+#include <arpa/inet.h>
 
 #ifndef MAX_USER_AMOUNT
 #define MAX_USER_AMOUNT 16
@@ -24,12 +24,11 @@
 #endif
 
 struct session {
-    
     int fd;
     char *username;
     unsigned long from_ip;
     unsigned short from_port;
-    char buf[1024];
+    //char buf[1024];
     int buf_used;
 };
 
@@ -38,6 +37,16 @@ struct server {
     struct session **session_array;
     int sessionCount;
 };
+
+void sendMessage(struct session *sess, char *str)
+{
+    write(sess->fd, str, sizeof(str));
+}
+
+int getAnswer(struct session *sess)
+{
+    return 0;
+}
 
 struct session *initNewSession(int fd, struct sockaddr_in *from)
 {
@@ -64,17 +73,16 @@ int initServer(struct server *serv, int port)
     addr.sin_port = htons(port);
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
     
-
     if (bind(sd, (struct sockaddr *) &addr, sizeof(addr)) != 0) {
         perror("bind");
         return -1;
     }
-    
-    if (listen(sd, 5) != 0) {
+
+    if (listen(sd, MAX_QUEUE_LEN) != 0) {
         perror("listen");
         return -1;
     }
-    
+
     serv->ls = sd;
     serv->sessionCount = MAX_USER_AMOUNT;
     serv->session_array = malloc(sizeof(*serv->session_array) * MAX_USER_AMOUNT);
@@ -84,9 +92,9 @@ int initServer(struct server *serv, int port)
     return 0;
 }
 
-void acceptClient (struct server *serv)
+void acceptClient(struct server *serv)
 {
-    int sd, i;
+    int sd;
        struct sockaddr_in addr;
        socklen_t len = sizeof(addr);
        sd = accept(serv->ls, (struct sockaddr*) &addr, &len);
@@ -98,11 +106,36 @@ void acceptClient (struct server *serv)
 
 int serverLoop(struct server *serv)
 {
-    
+    int i, maxfd, selectrezult;
+    fd_set readfds;
     for (;;) {
+        FD_ZERO(&readfds);
+        FD_SET(serv->ls, &readfds);
+        maxfd = serv->ls;
+        for(i=0; i < serv->sessionCount; i++) {
+            if(serv->session_array[i]) {
+                FD_SET(i, &readfds);
+                if(i > maxfd)
+                    maxfd = i;
+            }
+        }
         
-    }
+        selectrezult = select(maxfd+1, &readfds, NULL, NULL, NULL);
+        if(selectrezult == -1) {
+            perror("select");
+            return -1;
+        }
+        if(FD_ISSET(serv->ls, &readfds))
+            acceptClient(serv);
+        for(i = 0; i < serv->sessionCount; i++) {
+            if(serv->session_array[i] && FD_ISSET(i, &readfds)) {
+                ssr = session_do_read(serv->session_array[i]);
+                if(!ssr)
+                    server_close_session(serv, i);
+            }
+        }
     
+    }
     return 0;
 }
 
