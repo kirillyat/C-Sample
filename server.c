@@ -12,7 +12,6 @@
 #include <sys/socket.h>
 #include <fcntl.h>
 #include <string.h>
-#include <limits.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
@@ -29,7 +28,9 @@
 #endif
 
 int GLOBAL_GAME_SCORE = 0;
+
 const char text_glbl[] = "GLOBAL GAME SCORE :  ";
+const char text_welcome[] = "WELCOME TO INC AND DEC BATTLE! \n";
 
 enum session_states {
     start_state,
@@ -56,10 +57,13 @@ void sendMessage(struct session *sess, char *str)
 {
     write(sess->fd, str, sizeof(str));
 }
+
 void sendGlobalScore(struct session *sess)
 {
+    char glb[256];
     write(sess->fd, text_glbl, sizeof(text_glbl));
-    write(sess->fd, &GLOBAL_GAME_SCORE, sizeof(int));
+    sprintf(glb, "%d", GLOBAL_GAME_SCORE);
+    sendMessage(sess, glb);
     write(sess->fd, "\n", 1);
 }
 
@@ -78,7 +82,6 @@ void session_step(struct session *sess, char *line)
     case game_state:
         incOrDec(line);
         sendGlobalScore(sess);
-        break;
     case finish_state:
     case error_state:
         free(line);
@@ -106,7 +109,7 @@ void session_check_lf(struct session *sess)
     sess->buf_used -= (pos+1);
     if(line[pos-1] == '\r')
         line[pos-1] = 0;
-    session_step(sess, line);  /* we transfer ownership! */
+    session_step(sess, line);
 }
 
 int getAnswer(struct session *sess)
@@ -115,7 +118,7 @@ int getAnswer(struct session *sess)
     rc = read(sess->fd, sess->buf + sess->buf_used, BUFFER_SIZE - sess->buf_used);
     if (rc <= 0) {
         sess->state = error_state;
-        return 0;   /* this means "don't continue" for the caller */
+        return 0;
     }
     sess->buf_used += rc;
     session_check_lf(sess);
@@ -137,7 +140,7 @@ struct session *initNewSession(int fd, struct sockaddr_in *from)
     //newSession->username = NULL;
     newSession->buf_used = 0;
     newSession->state = game_state;
-    sendMessage(fd, "WELCOME TO INC VS. DEC BATTLE\n");
+    write(fd, text_welcome, sizeof(text_welcome));
     return newSession;
 }
 
