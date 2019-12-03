@@ -11,6 +11,7 @@
 #include <sys/wait.h>
 #include <sys/socket.h>
 #include <fcntl.h>
+#include <string.h>
 #include <limits.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -27,17 +28,19 @@
 #define BUFFER_SIZE 1024
 #endif
 
+int GLOBAL_GAME_SCORE = 0;
+const char text_glbl[] = "GLOBAL GAME SCORE :  ";
+
 enum session_states {
     start_state,
     game_state,
     error_state,
     finish_state,
 };
+
 struct session {
     int fd;
-    char *username;
-    unsigned long from_ip;
-    unsigned short from_port;
+    //char *username;
     char buf[BUFFER_SIZE];
     int buf_used;
     enum session_states state;
@@ -53,26 +56,76 @@ void sendMessage(struct session *sess, char *str)
 {
     write(sess->fd, str, sizeof(str));
 }
+void sendGlobalScore(struct session *sess)
+{
+    write(sess->fd, text_glbl, sizeof(text_glbl));
+    write(sess->fd, &GLOBAL_GAME_SCORE, sizeof(int));
+    write(sess->fd, "\n", 1);
+}
+
+void incOrDec(char *line)
+{
+    if (strcmp(line, "increment") == 0)
+        GLOBAL_GAME_SCORE++;
+    if (strcmp(line, "decrement") == 0)
+        GLOBAL_GAME_SCORE--;
+}
+
+void session_step(struct session *sess, char *line)
+{
+    switch (sess->state) {
+    case start_state:
+    case game_state:
+        incOrDec(line);
+        sendGlobalScore(sess);
+        break;
+    case finish_state:
+    case error_state:
+        free(line);
+    }
+}
 
 
+void session_check_lf(struct session *sess)
+{
+    int pos = -1;
+    int i;
+    char *line;
+    for(i = 0; i < sess->buf_used; i++) {
+        if(sess->buf[i] == '\n') {
+            pos = i;
+            break;
+        }
+    }
+    if(pos == -1)
+        return;
+    line = malloc(pos+1);
+    memcpy(line, sess->buf, pos);
+    line[pos] = 0;
+    memmove(sess->buf, sess->buf+pos, pos+1);
+    sess->buf_used -= (pos+1);
+    if(line[pos-1] == '\r')
+        line[pos-1] = 0;
+    session_step(sess, line);  /* we transfer ownership! */
+}
 
 int getAnswer(struct session *sess)
 {
-    int rc, bufp = sess->buf_used;
-    rc = read(sess->fd, sess->buf + bufp, BUFFER_SIZE - bufp);
-    if(rc <= 0) {
+    int rc;
+    rc = read(sess->fd, sess->buf + sess->buf_used, BUFFER_SIZE - sess->buf_used);
+    if (rc <= 0) {
         sess->state = error_state;
         return 0;   /* this means "don't continue" for the caller */
     }
     sess->buf_used += rc;
     session_check_lf(sess);
     
-    if(sess->buf_used >= BUFFER_SIZE) {
+    if (sess->buf_used >= BUFFER_SIZE) {
         sendMessage(sess, "Buffer overflow! Close session.\n");
         sess->state = error_state;
         return 0;
     }
-    if(sess->state == finish_state)
+    if (sess->state == finish_state)
         return 0;
     return 1;
 }
@@ -81,11 +134,10 @@ struct session *initNewSession(int fd, struct sockaddr_in *from)
 {
     struct session *newSession = malloc(sizeof(struct session));
     newSession->fd = fd;
-    newSession->username = NULL;
-    newSession->from_ip = ntohl(from->sin_addr.s_addr);
-    newSession->from_port = ntohs(from->sin_port);
+    //newSession->username = NULL;
     newSession->buf_used = 0;
-    newSession->state = start_state;
+    newSession->state = game_state;
+    sendMessage(fd, "WELCOME TO INC VS. DEC BATTLE\n");
     return newSession;
 }
 
@@ -150,20 +202,12 @@ void acceptClient(struct server *serv)
     serv->session_array[sd] = initNewSession(sd, &addr);
 }
 
-void server_remove_session(struct server_str *serv, int sd)
+void server_remove_session(struct server *serv, int sd)
 {
     close(sd);
-    serv->sess_array[sd]->fd = -1;
-    session_cleanup(serv->sess_array[sd]);
-    free(serv->sess_array[sd]);
-    serv->sess_array[sd] = NULL;
-}
-
-void server_close_session(struct server_str *serv, int sd)
-{
-    if(serv->sess_array[sd]->state == fsm_finish)
-        session_commit(serv->sess_array[sd], serv->res);
-    server_remove_session(serv, sd);
+    serv->session_array[sd]->fd = -1;
+    free(serv->session_array[sd]);
+    serv->session_array[sd] = NULL;
 }
 
 int serverLoop(struct server *serv)
@@ -193,7 +237,7 @@ int serverLoop(struct server *serv)
             if (serv->session_array[i] && FD_ISSET(i, &readfds)) {
                 readrez = getAnswer(serv->session_array[i]);
                 if (!readrez)
-                    server_close_session(serv, i);
+                    server_remove_session(serv, i);
             }
         }
     
@@ -213,4 +257,3 @@ int main(int argc, const char * argv[])
     serverLoop(&my_server);
     return 0;
 }
-
