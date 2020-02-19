@@ -148,26 +148,23 @@ int linelen(struct line *inputline)
 int ifWordIsReady(int symbol, int commaFlag)
 {
     return ( (symbol == '\n') ||
-             (symbol == EOF ) );
-}
-
-int ifExtraSymbol(int sumbol){
-    return ( (symbol == ' ') ||
-             (symbol == '&') ||
-             (symbol == '>') ||
-             (symbol == '<') ||
-             (symbol == '|') );
+             (symbol == EOF ) ||
+             ((symbol == ' ') && (!commaFlag)) ||
+             ((symbol == '&') && (!commaFlag)) ||
+             ((symbol == '>') && (!commaFlag)) ||
+             ((symbol == '<') && (!commaFlag)) ||
+             ((symbol == '|') && (!commaFlag)) );
 }
 
 int readWord(struct word** first)
 {
-    struct word *last = NULL;
-    int symbol, commaFlag = 0;
     freeword(*first);
     (*first) = NULL;
+    struct word *last = NULL;
+    int symbol, commaFlag = 0;
     for (;;) {
         symbol = getchar();
-        if (ifWordIsReady(symbol) || (ifExtraSymbol(symbol)&&(!commaflag))) {
+        if (ifWordIsReady(symbol, commaFlag)) {
             if ((symbol == '\n') && (commaFlag))
                 symbol = '\"';
             return symbol;
@@ -201,20 +198,21 @@ void addWord(struct line **first, struct line **last, struct word* element)
     (*last)->next = NULL;
 }
 
-struct command* initCommand()
+void initCommand(struct command **input)
 {
-    struct command* input = malloc(sizeof(struct command));
-    input->first = NULL;
-    input->backgroundflag = 0;
-    input->inflag = 0;
-    input->outflag = 0;
-    input->appendflag = 0;
-    input->eofflag = 0;
-    input->errflag = 0;
-    input->conveyerflag = 0;
-    input->outfd = NULL;
-    input->infd = NULL;
-    return input;
+    if (*input == NULL){
+        (*input) = malloc(sizeof(struct command));
+        (*input)->first = NULL;
+        (*input)->backgroundflag = 0;
+        (*input)->inflag = 0;
+        (*input)->outflag = 0;
+        (*input)->appendflag = 0;
+        (*input)->eofflag = 0;
+        (*input)->errflag = 0;
+        (*input)->conveyerflag = 0;
+        (*input)->outfd = NULL;
+        (*input)->infd = NULL;
+    }
 }
 
 int lexicalAnalysis(struct command **input, int status)
@@ -222,6 +220,7 @@ int lexicalAnalysis(struct command **input, int status)
     int analysis = 0;
     if (((*input)->backgroundflag == 1)&&(status!=' ')&&(status != '\n')){
         (*input)->errflag = 1;
+    
         write(2,"Bad input{&}\n", 13);
     }
     if (status == '&') {
@@ -270,6 +269,7 @@ int readLocation(struct command* result, int streem)
         if ((buffer == NULL) && (status == streem) && (status == '>'))
             result->appendflag = 1;
         else if (buffer == NULL) {
+            
             if (result->errflag == 0)
                 write(2, "Incorrect input {incorrect location}\n", 37);
             result->errflag = 1;
@@ -283,6 +283,7 @@ int readLocation(struct command* result, int streem)
                 result->eofflag = 1;
             if (result->errflag == 0)
                 write(2, "Incorrect input {more ten one >}\n", 33);
+        
             result->errflag = 1;
             return status;
         }
@@ -297,7 +298,8 @@ int readLocation(struct command* result, int streem)
 
 struct command* readCommand()
 {
-    struct command *result = initCommand();
+    struct command *result = NULL;
+    initCommand(&result);
     struct line *first = NULL, *last = NULL;
     struct word *buffer = NULL;
     int status, analysis;
@@ -338,8 +340,7 @@ struct command* readCommand()
     return result;
 }
 
-char* word2string (struct word* list)
-{
+char* word2string (struct word* list){
     int wordsize = wordlen(list), i;
     char *str = malloc(sizeof(char) * (1 + wordsize));
     for (i = 0; i < wordsize; i++) {
@@ -460,21 +461,14 @@ void сleaningZombieProcesses()
 
 void executeCommand(struct command *input, int fdin, int fdout)
 {
-    int rez, p = -1, status, zombiePid;
+    int rez, p, status, zombiePid;
     char** executeString = list2string(input->first);
     if (ifChangeDir(executeString)) {
             rez = chdir(executeString[1]);
             if (rez == -1)
                 perror(executeString[0]);
     } else {
-        while (p == -1) {
-            p = fork();
-            if (p == -1) {
-                sleep(1);
-                perror("fork");
-            }
-        }
-        
+        p = fork();
         if (p == 0) {  /* CHILD */
             if (fdin != 0) {
                 dup2(fdin, 0);
@@ -489,11 +483,10 @@ void executeCommand(struct command *input, int fdin, int fdout)
             exit(1);
         }
         freestring(executeString);
-        if (input->backgroundflag != 1) {
+        if (input->backgroundflag != 1)
             do { /* clean while (pid != p) */
                 zombiePid = wait(&status);
             } while (zombiePid != p);
-        }
     }
 }
 
@@ -561,6 +554,8 @@ char** readConveyerCommand(struct command *conveyerProgs)
         tmp = conveyerProgs->first;
         conveyerProgs->first = (conveyerProgs->first)->next;
         result = list2string(rezcmd);
+        
+       
         freeline(rezcmd);
         free(tmp);
     } else {
@@ -575,6 +570,7 @@ void conveyer(struct command **conveyerProgs, int fdin, struct pidlist** pids)
     int p, fdout = 1, fd[] = {0,1};
     char** executeString = NULL;
     executeString = readConveyerCommand(*conveyerProgs);
+    
     if ((*conveyerProgs)->first == NULL) {
         if ((*conveyerProgs)->outflag == 1){
             openOfd(*conveyerProgs, &fdout);
@@ -584,6 +580,7 @@ void conveyer(struct command **conveyerProgs, int fdin, struct pidlist** pids)
         pipe(fd);
         fdout = fd[1];
     }
+     
     p = fork();
     if (p != 0) {
         addPid(pids, p);
@@ -599,9 +596,11 @@ void conveyer(struct command **conveyerProgs, int fdin, struct pidlist** pids)
             dup2(fdout, 1);
             close(fdout);
         }
+       
         execvp(executeString[0], executeString);
         perror(executeString[0]);
         exit(1);
+        
     }
     freestring(executeString);
     executeString = NULL;
@@ -609,23 +608,73 @@ void conveyer(struct command **conveyerProgs, int fdin, struct pidlist** pids)
     if((*conveyerProgs)->first != NULL){
         if (fdin != 0)
             close(fdin);
-        if (fd[1] != 1)
+        if(fd[1] != 1)
             close(fd[1]);
         conveyer(conveyerProgs, fd[0], pids);
-        if (fd[0] != 0)
+       
+        if(fd[0] != 0)
             close(fd[0]);
        
     } else {
-        if (fd[0] != 0)
+        if(fd[0] != 0)
             close(fd[0]);
-        if (fd[1] != 1)
+        if(fd[1] != 1)
             close(fd[1]);
-        if (fdin != 0)
+        if(fdin != 0)
             close(fdin);
-        if (fdout != 1)
+        if(fdout != 1)
             close(fdout);
     }
 }
+
+void easy_conveyer(struct command **conveyerProgs, struct pidlist** pids)
+{
+    
+    int p, fd[2], fdout = -1, fdin = -1;
+    if (openOfd(*conveyerProgs, &fdout) == -1)
+        fdout = 1;
+    if (openIfd(*conveyerProgs, &fdin) == -1)
+        fdin = 0;
+    char** executeString = readConveyerCommand(*conveyerProgs);
+    pipe(fd);
+    p = fork();
+    if (p == 0) {
+        dup2(fdin,0);
+        close(fdin);
+        close(fd[0]);
+        dup2(fd[1], 1);
+        close(fd[1]);
+        
+        execvp(executeString[0], executeString);
+        perror(executeString[0]);
+        exit(1);
+        
+    }
+    freestring(executeString);
+    executeString = NULL;
+    
+    addPid(pids, p);
+    executeString = readConveyerCommand(*conveyerProgs);
+    p = fork();
+    if (p == 0) {
+        dup2(fdout, 1);
+        close(fdout);
+        close(fd[1]);
+        dup2(fd[0], 0);
+        close(fd[1]);
+        
+        execvp(executeString[0], executeString);
+        perror(executeString[0]);
+        exit(1);
+    }
+   
+    addPid(pids, p);
+    close(fd[0]);
+    close(fd[1]);
+    freestring(executeString);
+    executeString = NULL;
+}
+
 
 void printwelcome()
 {
@@ -639,10 +688,11 @@ void printwelcome()
 
 }
 
-int main(int argc, const char * argv[])
+void shell()
 {
     struct command *input = NULL;
     for (;;) {
+       
         printwelcome();
         input = readCommand();
         сleaningZombieProcesses();
@@ -655,12 +705,17 @@ int main(int argc, const char * argv[])
             freecommand(input);
             continue;
         } else {
-            if (input->conveyerflag) {
+            if (input->conveyerflag){
+                
                 struct pidlist* pids = NULL;
+                //easy_conveyer(&input, &pids);
+                
                 int fdin = 0;
                 if ((openIfd(input, &fdin) == -1) || (fdin == -1))
                     fdin = 0;
                 conveyer(&input, fdin, &pids);
+                
+              
                 if (input->backgroundflag == 0)
                     waitpidlist(pids);
                 freepids(pids);
@@ -680,7 +735,11 @@ int main(int argc, const char * argv[])
             }
         }
     }
-    return 0;
 }
 
 
+int main(int argc, const char * argv[])
+{
+    shell();
+    return 0;
+}
