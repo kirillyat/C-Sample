@@ -8,10 +8,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <string.h>
+#include <limits.h>
+#include <fcntl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <fcntl.h>
-#include <limits.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 
 class Player {
@@ -20,7 +24,7 @@ class Player {
     int raw;
     int factory;
     int product;
-    public:
+  public:
     PLayer(int N);
     Player(int N, int M, int R, int F, int P);
     void PrintStat();
@@ -30,23 +34,23 @@ class Player {
     void SetProduct(int P) { this->product = P; }
     void SetMoney(int M) { this->money = M; }
     void SetFactory(int F) { this->factory = F; }
-}
+}   
+
 
 class Game {
     int level;
     int prod;
-    public:
-        
+  public:
     void SetLevel(int L) { this->level = L; }
     void UpLevel() { this->level++; }
     void SetProd(int P) { this->prod = P}
-
-
 }
 
 
 class Bot: Player {
     int sd;
+
+  public:
 }
 
 
