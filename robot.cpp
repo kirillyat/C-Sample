@@ -30,8 +30,7 @@ class Player {
     void SetProduct(int P) { this->product = P; }
     void SetMoney(int M) { this->money = M; }
     void SetFactory(int F) { this->factory = F; }
-}   
-
+}
 
 class Game {
     int level;
