@@ -25,16 +25,15 @@ class Player {
     int factory;
     int product;
   public:
-    PLayer(int N);
     Player(int N, int M, int R, int F, int P);
     void PrintStat();
     void AddMoney(int S) { this->money+=S; }
     void AddFactory() { this->factory++; }
-    void SetRaw(int R) { this->raw = raw; }
+    void SetRaw(int R) { this->raw = R; }
     void SetProduct(int P) { this->product = P; }
     void SetMoney(int M) { this->money = M; }
     void SetFactory(int F) { this->factory = F; }
-}   
+};   
 
 
 class Game {
@@ -43,15 +42,15 @@ class Game {
   public:
     void SetLevel(int L) { this->level = L; }
     void UpLevel() { this->level++; }
-    void SetProd(int P) { this->prod = P}
-}
+    void SetProd(int P) { this->prod = P; }
+};
 
 
-class Bot: Player {
+class Bot:public Player {
     int sd;
 
   public:
-}
+};
 
 
 Player::Player(int N, int M, int R, int F, int P)
