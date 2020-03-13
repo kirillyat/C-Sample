@@ -19,7 +19,7 @@
 
 
 #ifndef LexBufferSize
-#define LexBufferSize 1024
+#define LexBufferSize 2048
 #endif
 
 bool ifSpecialSymbol(char C);
@@ -56,6 +56,11 @@ class lex
 private:
     bool ReadData();
     tokens* GetOneToken();
+    MachineState newStateHome(char C) const;
+    MachineState newStateKeyWord(char C) const;
+    MachineState newStateString(char C) const;
+    MachineState newStateIdentifier(char C) const;
+    MachineState newStateNumber(char C) const;
     MachineState newState(char C) const;
 public:
     lex(int fd);
@@ -150,42 +155,75 @@ bool ifAlpha(char C)
             ((C >= 'A') && (C <= 'Z'));
 }
 
+
+
+MachineState lex::newStateHome(char C) const
+{
+    if (ifSepSymbol(C))
+        return HomeState;
+    else if (ifIdentifier(C))
+        return IdentifierState;
+    else if (ifAlpha(C))
+        return KeyWordState;
+    else if (ifNumber(C))
+        return NumberState;
+    else if (ifSpecialSymbol(C))
+        return HomeState;
+    return ErrorState;
+}
+
+MachineState lex::newStateKeyWord(char C) const
+{
+    if (ifAlpha(C))
+        return KeyWordState;
+    else 
+        return HomeState;
+}
+
+MachineState lex::newStateNumber(char C) const
+{
+    if (ifNumber(C))
+        return NumberState;
+    else
+        return HomeState;
+}
+
+MachineState lex::newStateString(char C) const
+{
+    if (C == '"')
+        return HomeState;
+    else
+        return StringState;
+}
+
+MachineState lex::newStateIdentifier(char C) const
+{
+    if (ifAlpha(C))
+        return IdentifierState;
+    else
+        return HomeState;
+}
+
 MachineState lex::newState(char C) const
 {
-    if (this->state == HomeState) {
-        if (ifSepSymbol(C))
-            return HomeState;
-        else if (ifIdentifier(C))
-            return IdentifierState;
-        else if (ifAlpha(C))
-            return KeyWordState;
-        else if (ifNumber(C))
-            return NumberState;
-        else if (ifSpecialSymbol(C))
-            return HomeState;
-    } else if (this->state == KeyWordState) {
-        if (ifAlpha(C))
-            return KeyWordState;
-        else 
-            return HomeState;
-    } else if (this->state == NumberState) {
-        if (ifNumber(C))
-            return NumberState;
-        else
-            return HomeState;
-    } else if (this->state == StringState) {
-        if (C == '"')
-            return HomeState;
-        else
-            return StringState;
-    } else if (this->state == IdentifierState) {
-        if (ifAlpha(C))
-            return IdentifierState;
-        else
-            return HomeState;
-    }
-    return HomeState;
+    if (this->state == HomeState)
+        return newStateHome(C);
+    else if (this->state == KeyWordState)
+        return newStateKeyWord(C);
+    else if (this->state == NumberState)
+        return newStateNumber(C);
+    else if (this->state == StringState)
+        return newStateString(C);
+    else if (this->state == IdentifierState)
+        return newStateIdentifier(C);
+    else return ErrorState;
 }
+
+
+
+
+
+
 
 
 
@@ -194,3 +232,4 @@ int main (int argc, char* argv[])
     lex(open(*(argv+1), O_RDONLY));
     return 0;
 }
+
