@@ -4,7 +4,6 @@
 // CMC MSU 2020
 //
 
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -14,16 +13,13 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
 
-
-#ifndef LexBufferSize
-#define LexBufferSize 2048
+#ifndef LEX_BUFFER_SIZE
+#define LEX_BUFFER_SIZE 1024
 #endif
 
 bool ifSpecialSymbol(char C);
-bool ifSepSymbol(char C);
+bool ifSepSymbol(int C);
 bool ifNumber(char C);
 bool ifAlpha(char C);
 
@@ -33,133 +29,148 @@ enum MachineState
     NumberState,
     StringState,
     KeyWordState,
-    EqualState,
     IdentifierState,
-    ErrorState
+    ErrorState,
+    FinishState
 };
 
 struct tokens
 {        
     char* token;
     tokens* next;
-    int size;
-    int type;
+    //int type;
     int number;
 };
 
 class lex
 {
-    char* Buffer;
-    int BufferUsed;
-    int fd;
+    FILE * code;
     enum MachineState state;
 private:
-    bool ReadData();
     tokens* GetOneToken();
-    MachineState newStateHome(char C) const;
-    MachineState newStateKeyWord(char C) const;
-    MachineState newStateString(char C) const;
-    MachineState newStateIdentifier(char C) const;
-    MachineState newStateNumber(char C) const;
-    MachineState newState(char C) const;
+    MachineState newStateHome(int C) const;
+    MachineState newStateKeyWord(int C) const;
+    MachineState newStateString(int C) const;
+    MachineState newStateIdentifier(int C) const;
+    MachineState newStateNumber(int C) const;
+    MachineState newState(int C) const;
 public:
-    lex(int fd);
+    lex(FILE* F);
     lex(char* PathName);
+    tokens* LexicalAnalysis();
     ~lex();
 };
 
 
-lex::lex(int fd)
+lex::lex(FILE* F)
 {
-    this->Buffer = new char[LexBufferSize];
-    this->BufferUsed = 0;
-    this->fd = fd;
+    this->code = F;
     this->state = HomeState;
 }
 
 lex::lex(char* PathName)
 {
-    this->Buffer = new char[LexBufferSize];
-    this->BufferUsed = 0;
-    this->fd = open(PathName, O_RDONLY);
+    this->code = fopen(PathName, "r");
+    if(this->code == NULL){
+        perror("Error opening file");
+    }
     this->state = HomeState;
 }
 
 lex::~lex()
 {
-    delete []this->Buffer;
+    fclose(code);
 }
 
-
-bool lex::ReadData()
-{
-    int rc; 
-    rc = read(fd, Buffer + BufferUsed, LexBufferSize - BufferUsed);
-    if (rc <= 0) {
-        //TODO : error
-        return false;
-    }
-    BufferUsed += rc;
-    if (BufferUsed >= LexBufferSize) {
-        //TODO : error
-        return false;
-    }
-    return true;
-}
 
 
 tokens* lex::GetOneToken()
 {
-    int begin = 0, end = 0;
-    bool b = true;
-    tokens* tok = new tokens;
-    for (end = 0; end < BufferUsed; end++) {
-            MachineState s = newState(Buffer[end]);
-
-            state = s;
+    int I = 0, C;
+    bool flag = false;
+    MachineState S;
+    char* Buffer = new char[LEX_BUFFER_SIZE];
+    C = getc(this->code);
+    while (true) {
+        S = newState(C);
+        if (S == HomeState) {
+            if (this->state != HomeState){
+                ungetc(C, this->code);
+                this->state = HomeState;
+                break;
+            }
+            if (ifSpecialSymbol(C)) {
+                 Buffer[I] = C;
+                 I++;
+                 break;
+            }
+        } else if (S == FinishState) {
+            this->state = S;
+            delete[] Buffer;
+            return NULL;
+        } else {
+            this->state = S;
+            Buffer[I] = C;
+            I++;
+        }
+                
+        C = getc(this->code);
     }
+    tokens* tok = new tokens;
+    tok->token = new char[I];
+    tok->next = NULL;
+    memcpy(tok->token, Buffer, I);
+    delete[] Buffer;
     return tok;
 }
 
 
 bool ifSpecialSymbol(char C)
 {
-    return  (C == '+') || (C == '-') ||
+    return ((C == '+') || (C == '-') ||
             (C == '*') || (C == '/') ||
             (C == '<') || (C == '>') ||
-            (C == '(') || (C == ')');
+            (C == '(') || (C == ')') ||
+            (C == '[') || (C == ']') ||
+            (C == ',') || (C == ';'));
 }
 
 bool ifIdentifier(char C)
 {
-    return  (C == '$') ||
+    return ((C == '$') ||
             (C == '@') ||
-            (C == '?');
+            (C == '?'));
 }
 
-bool ifSepSymbol(char C)
+bool ifSepSymbol(int C)
 {
-    return  (C == ' ')  ||
+    return ((C == ' ')  ||
             (C == '\t') || 
-            (C == '\n');
+            (C == '\n') ||
+            (C == EOF));
 }
 
 bool ifNumber(char C)
 {
-    return  ((C >= '0') && (C <= '9'));
+    return ((C >= '0') && (C <= '9'));
 }
 
 bool ifAlpha(char C)
 {
-    return  ((C >= 'a') && (C <= 'z')) ||
+    return ((C >= 'a') && (C <= 'z')) ||
             ((C >= 'A') && (C <= 'Z'));
 }
 
-
-
-MachineState lex::newStateHome(char C) const
+bool ifNewOperator(tokens* T)
 {
-    if (ifSepSymbol(C))
+    return ((T->token[0] == ';') && (T->token[1] == 0));
+}
+
+MachineState lex::newStateHome(int C) const
+{
+    if (C == EOF)
+        return FinishState;
+    else if (ifSepSymbol(C))
         return HomeState;
     else if (ifIdentifier(C))
         return IdentifierState;
@@ -169,10 +180,11 @@ MachineState lex::newStateHome(char C) const
         return NumberState;
     else if (ifSpecialSymbol(C))
         return HomeState;
-    return ErrorState;
+    else
+        return HomeState;
 }
 
-MachineState lex::newStateKeyWord(char C) const
+MachineState lex::newStateKeyWord(int C) const
 {
     if (ifAlpha(C))
         return KeyWordState;
@@ -180,7 +192,7 @@ MachineState lex::newStateKeyWord(char C) const
         return HomeState;
 }
 
-MachineState lex::newStateNumber(char C) const
+MachineState lex::newStateNumber(int C) const
 {
     if (ifNumber(C))
         return NumberState;
@@ -188,7 +200,7 @@ MachineState lex::newStateNumber(char C) const
         return HomeState;
 }
 
-MachineState lex::newStateString(char C) const
+MachineState lex::newStateString(int C) const
 {
     if (C == '"')
         return HomeState;
@@ -196,7 +208,7 @@ MachineState lex::newStateString(char C) const
         return StringState;
 }
 
-MachineState lex::newStateIdentifier(char C) const
+MachineState lex::newStateIdentifier(int C) const
 {
     if (ifAlpha(C))
         return IdentifierState;
@@ -204,7 +216,7 @@ MachineState lex::newStateIdentifier(char C) const
         return HomeState;
 }
 
-MachineState lex::newState(char C) const
+MachineState lex::newState(int C) const
 {
     if (this->state == HomeState)
         return newStateHome(C);
@@ -224,12 +236,59 @@ MachineState lex::newState(char C) const
 
 
 
-
-
-
-int main (int argc, char* argv[])
+tokens* lex::LexicalAnalysis()
 {
-    lex(open(*(argv+1), O_RDONLY));
+    int OperatorN = 1;
+    tokens *first = NULL, *cur = NULL, *buf = NULL;
+    buf = GetOneToken();
+    while (this->state != FinishState) {
+        if (this->state == FinishState){
+            break;
+        }
+        if (buf != NULL) {
+            buf->number = OperatorN;
+            if (first == NULL) {
+                first = buf;
+                cur = first;
+            } else {
+                cur->next = buf;
+                cur = cur->next;
+            }
+            if (ifNewOperator(buf))
+                OperatorN++;
+        }
+        buf = GetOneToken();
+    }
+    return first;
+}
+
+
+void PrintToken(tokens* tok)
+{
+    printf("Operator Number:   %i\n", tok->number);
+    printf("Value :  %s\n", tok->token);
+    printf("\n");
+}
+void PrintTokens(tokens* first)
+{
+    tokens* cur = first;
+    while (cur != NULL) {
+        PrintToken(cur);
+        cur = cur->next;
+    }
+}
+
+int main(int argc, char* argv[])
+{
+
+    FILE* F = fopen("1.py", "r");
+    lex L = lex(F);
+    tokens *T = L.LexicalAnalysis();
+    PrintTokens(T);
     return 0;
 }
+
+
+
+
 
